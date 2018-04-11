@@ -865,3 +865,56 @@ err:
 
 	return ret;
 }
+
+int fdt_overlay_merge(void *fdt, void *fdto, int *fdto_nospace)
+{
+	uint32_t delta = fdt_get_max_phandle(fdt);
+	int ret;
+
+	fdt_check_header(fdt);
+	fdt_check_header(fdto);
+
+	*fdto_nospace = 0;
+
+	ret = overlay_adjust_local_phandles(fdto, delta);
+	if (ret)
+		goto err;
+
+	ret = overlay_update_local_references(fdto, delta);
+	if (ret)
+		goto err;
+
+	ret = overlay_fixup_phandles(fdt, fdto);
+	if (ret)
+		goto err;
+
+	ret = overlay_merge(fdt, fdto);
+	if (ret)
+		goto err;
+
+	ret = overlay_symbol_update(fdt, fdto);
+	if (ret)
+		goto err;
+
+	/*
+	 * The overlay has been damaged, erase its magic.
+	 */
+	fdt_set_magic(fdto, ~0);
+
+	return 0;
+
+err:
+	/*
+	 * The overlay might have been damaged, erase its magic.
+	 */
+	fdt_set_magic(fdto, ~0);
+
+	/*
+	 * The base device tree might have been damaged, erase its
+	 * magic.
+	 */
+	if (!*fdto_nospace)
+		fdt_set_magic(fdt, ~0);
+
+	return ret;
+}
