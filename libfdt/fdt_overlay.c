@@ -855,6 +855,7 @@ static int get_path_len(const void *fdt, int nodeoffset)
  * overlay_symbol_update - Update the symbols of base tree after a merge
  * @fdt: Base Device Tree blob
  * @fdto: Device tree overlay blob
+ * @merge: Both input blobs are overlay blobs that are being merged
  *
  * overlay_symbol_update() updates the symbols of the base tree with the
  * symbols of the applied overlay
@@ -867,9 +868,9 @@ static int get_path_len(const void *fdt, int nodeoffset)
  *      0 on success
  *      Negative error code on failure
  */
-static int overlay_symbol_update(void *fdt, void *fdto)
+static int overlay_symbol_update(void *fdt, void *fdto, int merge)
 {
-	int root_sym, ov_sym, prop, path_len, fragment, target;
+	int root_sym, ov_sym, prop, next_prop, path_len, fragment, target;
 	int len, frag_name_len, ret, rel_path_len;
 	const char *s, *e;
 	const char *path;
@@ -897,7 +898,12 @@ static int overlay_symbol_update(void *fdt, void *fdto)
 		return root_sym;
 
 	/* iterate over each overlay symbol */
-	fdt_for_each_property_offset(prop, fdto, ov_sym) {
+
+	/* Safeguard against property being possibly deleted in this loop */
+	prop = fdt_first_property_offset(fdto, ov_sym);
+	while (prop >= 0) {
+		next_prop = fdt_next_property_offset(fdto, prop);
+
 		path = fdt_getprop_by_offset(fdto, prop, &name, &path_len);
 		if (!path)
 			return path_len;
@@ -955,8 +961,14 @@ static int overlay_symbol_update(void *fdt, void *fdto)
 
 		/* get the target of the fragment */
 		ret = fdt_overlay_target_offset(fdt, fdto, fragment, &target_path);
-		if (ret < 0)
+		if (ret < 0) {
+			if (ret == -FDT_ERR_BADPHANDLE && merge) {
+				prop = next_prop;
+				continue;
+			}
+
 			return ret;
+		}
 		target = ret;
 
 		/* if we have a target path use */
@@ -997,6 +1009,31 @@ static int overlay_symbol_update(void *fdt, void *fdto)
 		buf[len] = '/';
 		memcpy(buf + len + 1, rel_path, rel_path_len);
 		buf[len + 1 + rel_path_len] = '\0';
+
+		/*
+		 * In case of merging two overlay blobs, we will be merging
+		 * contents of nodes such as __symbols__ from both overlay
+		 * blobs. Delete this property in __symbols__ node of second
+		 * overlay blob, as it has already been reflected in
+		 * first/combined blob's __symbols__ node.
+		 */
+		if (merge) {
+			ret = fdt_delprop(fdto, ov_sym, name);
+			if (ret < 0)
+				return ret;
+
+			/* Bail if this was the last property */
+			if (next_prop < 0)
+				break;
+
+			/*
+			 * Continue with same 'prop' offset, as the next
+			 * property is now available at the same offset
+			 */
+			continue;
+		}
+
+		prop = next_prop;
 	}
 
 	return 0;
@@ -1030,7 +1067,7 @@ int fdt_overlay_apply(void *fdt, void *fdto)
 	if (ret)
 		goto err;
 
-	ret = overlay_symbol_update(fdt, fdto);
+	ret = overlay_symbol_update(fdt, fdto, 0);
 	if (ret)
 		goto err;
 
@@ -1383,7 +1420,7 @@ int fdt_overlay_merge(void *fdt, void *fdto, int *fdto_nospace)
 	if (ret)
 		goto err;
 
-	ret = overlay_symbol_update(fdt, fdto);
+	ret = overlay_symbol_update(fdt, fdto, 1);
 	if (ret)
 		goto err;
 
