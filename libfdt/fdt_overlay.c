@@ -777,9 +777,69 @@ static int overlay_apply_node(void *fdt, int target,
 }
 
 /**
+ * copy_node - copy a node hierarchically
+ * @fdt - pointer to base device tree
+ * @fdto - pointer to overlay device tree
+ * @fdt_child - offset of node in overlay device tree which needs to be copied
+ * @fdt_parent - offset of parent node in base tree under which @fdto_child
+ *		need to be copied
+ *
+ * This function copies a node in overlay tree along with its child-nodes and
+ * their properties, under a given parent node in base tree.
+ */
+static int copy_node(void *fdt, void *fdto, int fdt_parent, int fdto_child)
+{
+	const char *name, *value;
+	int offset, len, ret, prop, child;
+	void *p;
+
+	name = fdt_get_name(fdto, fdto_child, &len);
+	if (!name)
+		return len;
+
+	offset = fdt_subnode_offset(fdt, fdt_parent, name);
+	if (offset < 0) {
+		offset = fdt_add_subnode(fdt, fdt_parent, name);
+		if (offset < 0)
+			return offset;
+	}
+
+	fdt_for_each_subnode(child, fdto, fdto_child) {
+		ret = copy_node(fdt, fdto, offset, child);
+		if (ret < 0)
+			return ret;
+	}
+
+	fdt_for_each_property_offset(prop, fdto, fdto_child) {
+		int fdt_len = 0;
+
+		value = fdt_getprop_by_offset(fdto, prop,
+						  &name, &len);
+
+		if (fdt_getprop(fdt, offset, name, &fdt_len))
+			len += fdt_len;
+
+		ret = fdt_setprop_placeholder(fdt, offset, name,
+								len, &p);
+		if (ret < 0)
+			return ret;
+
+		if (fdt_len > 0) {
+			p = (char *)p + fdt_len;
+			len -= fdt_len;
+		}
+
+		memcpy(p, value, len);
+	}
+
+	return 0;
+}
+
+/**
  * overlay_merge - Merge an overlay into its base device tree
  * @fdt: Base Device Tree blob
  * @fdto: Device tree overlay blob
+ * @merge: Both input blobs are overlay blobs that are being merged
  *
  * overlay_merge() merges an overlay into its base device tree.
  *
@@ -791,7 +851,7 @@ static int overlay_apply_node(void *fdt, int target,
  *      0 on success
  *      Negative error code on failure
  */
-static int overlay_merge(void *fdt, void *fdto)
+static int overlay_merge(void *fdt, void *fdto, int merge)
 {
 	int fragment;
 
@@ -812,8 +872,21 @@ static int overlay_merge(void *fdt, void *fdto)
 			return overlay;
 
 		target = fdt_overlay_target_offset(fdt, fdto, fragment, NULL);
-		if (target < 0)
+		if (target < 0) {
+			/*
+			 * No target found which is acceptable situation in case
+			 * of merging two overlay blobs. Copy this fragment to
+			 * base/combined blob, so that it can be considered for
+			 * overlay during a subsequent overlay operation of
+			 * combined blob on another base blob.
+			 */
+			if (target == -FDT_ERR_BADPHANDLE && merge) {
+				target = copy_node(fdt, fdto, 0, fragment);
+				if (!target)
+					continue;
+			}
 			return target;
+		}
 
 		ret = overlay_apply_node(fdt, target, fdto, overlay);
 		if (ret)
@@ -1063,7 +1136,7 @@ int fdt_overlay_apply(void *fdt, void *fdto)
 	if (ret)
 		goto err;
 
-	ret = overlay_merge(fdt, fdto);
+	ret = overlay_merge(fdt, fdto, 0);
 	if (ret)
 		goto err;
 
@@ -1387,6 +1460,34 @@ static int overlay_rename_fragments(void *fdt, void *fdto)
 	return ret;
 }
 
+/* merge a node's properties from fdto to fdt */
+static int overlay_merge_node_properties(void *fdt,
+					void *fdto, const char *nodename)
+{
+	int fdto_offset, ret;
+
+	fdto_offset = fdt_path_offset(fdto, nodename);
+	if (fdto_offset < 0)
+		return fdto_offset;
+
+	ret = copy_node(fdt, fdto, 0, fdto_offset);
+
+	return ret;
+}
+
+static int overlay_merge_local_fixups(void *fdt, void *fdto)
+{
+	int fdto_local_fixups, ret;
+
+	fdto_local_fixups = fdt_path_offset(fdto, "/__local_fixups__");
+	if (fdto_local_fixups < 0)
+		return fdto_local_fixups;
+
+	ret = copy_node(fdt, fdto, 0, fdto_local_fixups);
+
+	return ret;
+}
+
 int fdt_overlay_merge(void *fdt, void *fdto, int *fdto_nospace)
 {
 	uint32_t delta = fdt_get_max_phandle(fdt);
@@ -1416,12 +1517,27 @@ int fdt_overlay_merge(void *fdt, void *fdto, int *fdto_nospace)
 	if (ret)
 		goto err;
 
-	ret = overlay_merge(fdt, fdto);
+	ret = overlay_merge(fdt, fdto, 1);
 	if (ret)
 		goto err;
 
 	ret = overlay_symbol_update(fdt, fdto, 1);
 	if (ret)
+		goto err;
+
+	/* Can't have an overlay without __fixups__ ? */
+	ret = overlay_merge_node_properties(fdt, fdto, "/__fixups__");
+	if (ret)
+		goto err;
+
+	/* __symbols__ node need not be present */
+	ret = overlay_merge_node_properties(fdt, fdto, "/__symbols__");
+	if (ret && ret != -FDT_ERR_NOTFOUND)
+		goto err;
+
+	/* __local_fixups__ node need not be present */
+	ret = overlay_merge_local_fixups(fdt, fdto);
+	if (ret < 0 && ret != -FDT_ERR_NOTFOUND)
 		goto err;
 
 	/*
