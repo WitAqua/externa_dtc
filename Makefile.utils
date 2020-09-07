@@ -29,3 +29,9 @@ FDTOVERLAY_SRCS = \
 	util.c
 
 FDTOVERLAY_OBJS = $(FDTOVERLAY_SRCS:%.c=%.o)
+
+FDTOVERLAYMERGE_SRCS = \
+	fdtoverlaymerge.c \
+	util.c
+
+FDTOVERLAYMERGE_OBJS = $(FDTOVERLAYMERGE_SRCS:%.c=%.o)
