@@ -1405,7 +1405,6 @@ next_node:
 		offset = fdt_next_subnode(fdt, offset);
 	}
 
-
 	if (!found)
 		return -FDT_ERR_NOTFOUND;
 
@@ -1428,7 +1427,10 @@ static int overlay_rename_fragments(void *fdt, void *fdto)
 	unsigned long max_base_fragments = 0;
 
 	ret = count_fragments(fdt, &max_base_fragments);
-	if (ret < 0)
+	/* no fragments in base dtb? then nothing to rename */
+	if (ret == -FDT_ERR_NOTFOUND)
+		return 0;
+	else if (ret < 0)
 		return ret;
 
 	max_base_fragments += 1;
