@@ -548,11 +548,11 @@ static int overlay_add_to_local_fixups(void *fdt, const char *value, int len)
 static int overlay_fixup_phandle(void *fdt, void *fdto, int symbols_off,
 				int property, int fixups_off, int merge)
 {
-	const char *value;
+	const char *value, *total_value;
 	const char *label;
-	int len, ret = 0;
+	int len, total_len, ret = 0;
 
-	value = fdt_getprop_by_offset(fdto, property,
+	total_value = value = fdt_getprop_by_offset(fdto, property,
 				      &label, &len);
 	if (!value) {
 		if (len == -FDT_ERR_NOTFOUND)
@@ -560,6 +560,8 @@ static int overlay_fixup_phandle(void *fdt, void *fdto, int symbols_off,
 
 		return len;
 	}
+
+	total_len = len;
 
 	do {
 		const char *path, *name, *fixup_end;
@@ -631,7 +633,7 @@ static int overlay_fixup_phandle(void *fdt, void *fdto, int symbols_off,
 	 * during a subsequent overlay of combined blob on a base blob.
 	 */
 	if (merge) {
-		ret = overlay_add_to_local_fixups(fdt, value, len);
+		ret = overlay_add_to_local_fixups(fdt, total_value, total_len);
 		if (!ret)
 			ret = fdt_delprop(fdto, fixups_off, label);
 	}
