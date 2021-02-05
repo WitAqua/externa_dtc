@@ -394,8 +394,7 @@ static int overlay_fixup_one_phandle(void *fdt, void *fdto,
 
 static int overlay_add_to_local_fixups(void *fdt, const char *value, int len)
 {
-	const char *path, *fixup_end, *prop;
-	const char *fixup_str = value;
+	const char *path, *fixup_end, *prop, *fixup_str;
 	uint32_t clen;
 	uint32_t fixup_len;
 	char *sep, *endptr;
@@ -412,6 +411,8 @@ static int overlay_add_to_local_fixups(void *fdt, const char *value, int len)
 		return localfixup_off;
 
 	while (len > 0) {
+		fixup_str = value;
+
 		/* Assumes null-terminated properties! */
 		fixup_end = memchr(value, '\0', len);
 		if (!fixup_end)
@@ -515,7 +516,7 @@ static int overlay_add_to_local_fixups(void *fdt, const char *value, int len)
 			}
 		}
 
-		ret = fdt_setprop_u32(fdt, nodeoffset, propname, poffset);
+		ret = fdt_appendprop_u32(fdt, nodeoffset, propname, poffset);
 		if (ret < 0)
 			return ret;
 	}
