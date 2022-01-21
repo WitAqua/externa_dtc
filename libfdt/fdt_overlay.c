@@ -1232,7 +1232,6 @@ static int rename_fragments_in_property(void *fdto, int offset,
 		ret = fdt_setprop_placeholder(fdto, offset, label, needed, &p);
 		if (ret < 0)
 			return ret;
-		len = needed;
 	}
 
 	start = p;
@@ -1262,6 +1261,7 @@ static int rename_fragments_in_property(void *fdto, int offset,
 		if (available < needed) {
 			diff = needed - available;
 			memmove(stop + diff, stop, (end - stop));
+			end += diff;
 		}
 
 		{
