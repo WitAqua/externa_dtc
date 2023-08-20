@@ -118,10 +118,28 @@ cc_binary_host {
 }
 
 cc_binary_host {
+    name: "fdtput",
+    defaults: ["dt_defaults"],
+    srcs: [
+        "fdtput.c",
+        "util.c",
+    ],
+}
+
+cc_binary_host {
     name: "fdtoverlay",
     defaults: ["dt_defaults"],
     srcs: [
         "fdtoverlay.c",
+        "util.c",
+    ],
+}
+
+cc_binary_host {
+    name: "fdtoverlaymerge",
+    defaults: ["dt_defaults"],
+    srcs: [
+        "fdtoverlaymerge.c",
         "util.c",
     ],
 }
